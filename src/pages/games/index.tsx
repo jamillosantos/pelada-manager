@@ -11,10 +11,12 @@ import {
 	Users,
 	X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { ClassBadge } from "@/components/player-bits";
+import { useWakeLock } from "@/hooks/useWakeLock";
 import { ColorDot } from "@/components/ui/color-dot";
 import { ConfirmSheet } from "@/components/ui/confirm";
 import { Sheet } from "@/components/ui/sheet";
@@ -61,6 +63,7 @@ export default function Games() {
 		[players],
 	);
 	const nameOf = (id: string) => byId.get(id)?.name ?? "?";
+	const classOf = (id: string) => byId.get(id)?.class;
 
 	// candidates for a new game, in priority order: who is on the field, then the
 	// waiting queue. Deduped so nobody appears twice.
@@ -77,13 +80,31 @@ export default function Games() {
 			.filter((p): p is Player => !!p && !p.disabled);
 	}, [teamA, teamB, queue, byId]);
 
-	const nextUp = queue.slice(0, teamSize * 2);
+	// how many come in next: one team if the field is set (winner stays), two if
+	// it's empty (first game / both left)
+	const fieldSet =
+		(teamA?.players.length ?? 0) > 0 || (teamB?.players.length ?? 0) > 0;
+	const intake = fieldSet ? teamSize : teamSize * 2;
+	const nextUp = queue.slice(0, intake);
+
+	// standing winner that stays for the next game (just highlighted in the draft,
+	// still editable). endGame already applied the mode rules: in too-many ties /
+	// 2-in-a-row both teams leave (streak 0), so there is no staying winner.
+	const winnerTeam = useMemo<{ side: "A" | "B"; ids: string[] } | null>(() => {
+		if (playing) return null;
+		if (teamA && teamA.streak > 0 && teamA.players.length > 0)
+			return { side: "A", ids: teamA.players };
+		if (teamB && teamB.streak > 0 && teamB.players.length > 0)
+			return { side: "B", ids: teamB.players };
+		return null;
+	}, [playing, teamA, teamB]);
 
 	const scoreA = currentGoals.filter((g) => g.team === "A").length;
 	const scoreB = currentGoals.filter((g) => g.team === "B").length;
 	const goalsByPlayer = useMemo(() => {
 		const m = new Map<string, number>();
-		for (const g of currentGoals) m.set(g.playerId, (m.get(g.playerId) ?? 0) + 1);
+		for (const g of currentGoals)
+			m.set(g.playerId, (m.get(g.playerId) ?? 0) + 1);
 		return m;
 	}, [currentGoals]);
 
@@ -91,12 +112,26 @@ export default function Games() {
 	const candidate: GameResult =
 		scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : "tie";
 
-	// live countdown tick
+	// keep the screen awake while a game is running
+	useWakeLock(!!playing);
+
+	// live countdown tick. The timer is epoch-based (timerEndsAt), so even if the
+	// page was backgrounded/asleep the remaining value is correct on resume — we
+	// also tick on visibilitychange so the end is detected (and the alarm fires)
+	// the moment the phone comes back.
 	const [nowTs, setNowTs] = useState(() => Date.now());
 	useEffect(() => {
 		if (!timerEndsAt) return;
-		const id = setInterval(() => setNowTs(Date.now()), 500);
-		return () => clearInterval(id);
+		const tick = () => setNowTs(Date.now());
+		const id = setInterval(tick, 500);
+		const onVisible = () => {
+			if (document.visibilityState === "visible") tick();
+		};
+		document.addEventListener("visibilitychange", onVisible);
+		return () => {
+			clearInterval(id);
+			document.removeEventListener("visibilitychange", onVisible);
+		};
 	}, [timerEndsAt]);
 	const remaining = timerEndsAt ? Math.max(0, timerEndsAt - nowTs) : null;
 
@@ -104,7 +139,11 @@ export default function Games() {
 	const [confirmWinner, setConfirmWinner] = useState(false);
 	const firedFor = useRef<number | null>(null);
 	useEffect(() => {
-		if (timerEndsAt && nowTs >= timerEndsAt && firedFor.current !== timerEndsAt) {
+		if (
+			timerEndsAt &&
+			nowTs >= timerEndsAt &&
+			firedFor.current !== timerEndsAt
+		) {
 			firedFor.current = timerEndsAt;
 			setConfirmWinner(true);
 			playAlarm();
@@ -137,53 +176,56 @@ export default function Games() {
 				</button>
 			</header>
 
-			{/* field */}
-			<Card>
-				<CardContent className="flex flex-col gap-3 p-4">
-					{/* placar */}
-					<div className="flex items-center justify-center gap-4">
-						<div className="flex flex-1 items-center justify-end gap-1.5 truncate">
-							<span className="truncate text-sm font-semibold">
-								{colorA.label}
+			{/* field — only while a game is running */}
+			{playing && (
+				<Card>
+					<CardContent className="flex flex-col gap-3 p-4">
+						{/* placar */}
+						<div className="flex items-center justify-center gap-4">
+							<div className="flex flex-1 items-center justify-end gap-1.5 truncate">
+								<span className="truncate text-sm font-semibold">
+									{colorA.label}
+								</span>
+								<ColorDot color={colorA} />
+							</div>
+							<span className="min-w-16 text-center text-3xl font-bold tabular-nums">
+								{scoreA} <span className="text-muted-foreground">x</span>{" "}
+								{scoreB}
 							</span>
-							<ColorDot color={colorA} />
+							<div className="flex flex-1 items-center gap-1.5 truncate">
+								<ColorDot color={colorB} />
+								<span className="truncate text-sm font-semibold">
+									{colorB.label}
+								</span>
+							</div>
 						</div>
-						<span className="min-w-16 text-center text-3xl font-bold tabular-nums">
-							{scoreA} <span className="text-muted-foreground">x</span> {scoreB}
-						</span>
-						<div className="flex flex-1 items-center gap-1.5 truncate">
-							<ColorDot color={colorB} />
-							<span className="truncate text-sm font-semibold">
-								{colorB.label}
-							</span>
-						</div>
-					</div>
 
-					<TeamView
-						color={colorA}
-						team={teamA}
-						nameOf={nameOf}
-						playing={!!playing}
-						goalsByPlayer={goalsByPlayer}
-						onAddGoal={addGoal}
-						onSub={(id) => setSubFor(byId.get(id) ?? null)}
-					/>
-					<div className="flex items-center justify-center gap-2 text-sm font-bold text-muted-foreground">
-						<span className="h-px flex-1 bg-border" />
-						VS
-						<span className="h-px flex-1 bg-border" />
-					</div>
-					<TeamView
-						color={colorB}
-						team={teamB}
-						nameOf={nameOf}
-						playing={!!playing}
-						goalsByPlayer={goalsByPlayer}
-						onAddGoal={addGoal}
-						onSub={(id) => setSubFor(byId.get(id) ?? null)}
-					/>
-				</CardContent>
-			</Card>
+						<TeamView
+							color={colorA}
+							team={teamA}
+							nameOf={nameOf}
+							playing={!!playing}
+							goalsByPlayer={goalsByPlayer}
+							onAddGoal={addGoal}
+							onSub={(id) => setSubFor(byId.get(id) ?? null)}
+						/>
+						<div className="flex items-center justify-center gap-2 text-sm font-bold text-muted-foreground">
+							<span className="h-px flex-1 bg-border" />
+							VS
+							<span className="h-px flex-1 bg-border" />
+						</div>
+						<TeamView
+							color={colorB}
+							team={teamB}
+							nameOf={nameOf}
+							playing={!!playing}
+							goalsByPlayer={goalsByPlayer}
+							onAddGoal={addGoal}
+							onSub={(id) => setSubFor(byId.get(id) ?? null)}
+						/>
+					</CardContent>
+				</Card>
+			)}
 
 			{/* goals / undo */}
 			{playing && currentGoals.length > 0 && (
@@ -302,7 +344,7 @@ export default function Games() {
 			{/* next up */}
 			<section className="flex flex-col gap-2">
 				<h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-					<Users className="size-4" /> Próximos na fila ({queue.length})
+					<Users className="size-4" /> Próximos na fila ({nextUp.length})
 				</h2>
 				{nextUp.length === 0 ? (
 					<p className="rounded-lg border border-dashed py-5 text-center text-sm text-muted-foreground">
@@ -318,7 +360,8 @@ export default function Games() {
 								<span className="w-5 text-center font-semibold text-muted-foreground">
 									{i + 1}
 								</span>
-								{nameOf(id)}
+								<span className="min-w-0 flex-1 truncate">{nameOf(id)}</span>
+								{classOf(id) && <ClassBadge cls={classOf(id)!} />}
 							</li>
 						))}
 					</ul>
@@ -362,6 +405,7 @@ export default function Games() {
 				teamSize={teamSize}
 				colorA={colorA}
 				colorB={colorB}
+				winner={winnerTeam}
 				onClose={() => setPicking(false)}
 				onConfirm={(aIds, bIds) => {
 					startGameTeams(aIds, bIds);
@@ -541,6 +585,7 @@ function GamePickerSheet({
 	teamSize,
 	colorA,
 	colorB,
+	winner,
 	onClose,
 	onConfirm,
 }: {
@@ -549,26 +594,38 @@ function GamePickerSheet({
 	teamSize: number;
 	colorA: TeamColor;
 	colorB: TeamColor;
+	winner: { side: "A" | "B"; ids: string[] } | null;
 	onClose: () => void;
 	onConfirm: (aIds: string[], bIds: string[]) => void;
 }) {
 	const need = teamSize * 2;
-	// suggested split: first teamSize of the queue → A, next teamSize → B
+	const winnerSet = useMemo(() => new Set(winner?.ids ?? []), [winner]);
+	const openSide = winner ? (winner.side === "A" ? "B" : "A") : null;
+
+	// suggested split: keep the winner on its side, draft the challenger on the
+	// other; first game / both-left → first teamSize A, next teamSize B
 	const suggested = useMemo(() => {
 		const map = new Map<string, "A" | "B">();
-		candidates.slice(0, teamSize).forEach((p) => map.set(p.id, "A"));
-		candidates.slice(teamSize, need).forEach((p) => map.set(p.id, "B"));
+		if (winner) {
+			for (const id of winner.ids) map.set(id, winner.side);
+			candidates
+				.filter((p) => !winnerSet.has(p.id))
+				.slice(0, teamSize)
+				.forEach((p) => map.set(p.id, openSide!));
+		} else {
+			candidates.slice(0, teamSize).forEach((p) => map.set(p.id, "A"));
+			candidates.slice(teamSize, need).forEach((p) => map.set(p.id, "B"));
+		}
 		return map;
-	}, [candidates, teamSize, need]);
+	}, [candidates, teamSize, need, winner, winnerSet, openSide]);
 
 	const [assign, setAssign] = useState<Map<string, "A" | "B">>(new Map());
 
-	// seed the suggested assignment each time the sheet opens
 	useEffect(() => {
 		if (open) setAssign(new Map(suggested));
 	}, [open, suggested]);
 
-	// tap a side: assign there, or clear if already on that side
+	// fully editable — everyone can be moved between sides or out
 	const setTeam = (id: string, team: "A" | "B") =>
 		setAssign((prev) => {
 			const next = new Map(prev);
@@ -601,10 +658,24 @@ function GamePickerSheet({
 		);
 	};
 
+	// staying winner first, then the rest to draft
+	const ordered = useMemo(() => {
+		if (!winner) return candidates;
+		const win = candidates.filter((p) => winnerSet.has(p.id));
+		const rest = candidates.filter((p) => !winnerSet.has(p.id));
+		return [...win, ...rest];
+	}, [candidates, winner, winnerSet]);
+
+	const winnerColor = winner ? (winner.side === "A" ? colorA : colorB) : null;
+	// index where the staying group ends, to draw a divider before the challengers
+	const dividerAfter = winner ? winnerSet.size - 1 : -1;
+
 	return (
 		<Sheet open={open} onClose={onClose} title="Montar jogo">
 			<p className="mb-2 text-sm text-muted-foreground">
-				Toque na cor para escolher o time de cada jogador.
+				{winner
+					? `${winnerColor!.label} venceu e fica — pode ajustar se quiser.`
+					: "Toque na cor para escolher o time de cada jogador."}
 			</p>
 			<div className="mb-2 flex items-center gap-3 text-sm font-medium">
 				<span className="flex items-center gap-1.5">
@@ -615,22 +686,40 @@ function GamePickerSheet({
 				</span>
 			</div>
 			<div className="-mx-1 flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto px-1">
-				{candidates.map((p) => {
+				{ordered.map((p, i) => {
+					const isWinner = winnerSet.has(p.id);
 					const team = assign.get(p.id);
 					return (
-						<div
-							key={p.id}
-							className={cn(
-								"flex items-center gap-2 rounded-lg border px-3 py-2",
-								team ? "border-primary bg-accent" : "bg-card",
+						<Fragment key={p.id}>
+							<div
+								className={cn(
+									"flex items-center gap-2 rounded-lg border px-3 py-2",
+									isWinner && "border-success/60 bg-success/5",
+									!isWinner && team && "border-primary bg-accent",
+									!isWinner && !team && "bg-card",
+								)}
+							>
+								<span className="min-w-0 flex-1 truncate font-medium">
+									{p.name}
+								</span>
+								{isWinner && (
+									<span className="flex items-center gap-1 text-xs font-medium text-success">
+										<Trophy className="size-3.5" /> fica
+									</span>
+								)}
+								<SideButton id={p.id} team="A" />
+								<SideButton id={p.id} team="B" />
+							</div>
+							{i === dividerAfter && (
+								<div className="flex items-center gap-2 py-0.5">
+									<hr className="flex-1 border-t border-dashed" />
+									<span className="text-[10px] font-medium uppercase text-muted-foreground">
+										desafiantes
+									</span>
+									<hr className="flex-1 border-t border-dashed" />
+								</div>
 							)}
-						>
-							<span className="min-w-0 flex-1 truncate font-medium">
-								{p.name}
-							</span>
-							<SideButton id={p.id} team="A" />
-							<SideButton id={p.id} team="B" />
-						</div>
+						</Fragment>
 					);
 				})}
 			</div>

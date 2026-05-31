@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ConfirmSheet } from "@/components/ui/confirm";
 import { Input } from "@/components/ui/input";
 import { TEAM_COLORS, getColor } from "@/lib/colors";
+import { QUEUE_STRATEGIES } from "@/lib/queue-strategies";
 import { playAlarm, unlockAudio } from "@/lib/sound";
 import { useStore } from "@/lib/store";
 import { cn } from "@/utils/cn";
@@ -20,6 +21,8 @@ export default function Config() {
 	const teamAColor = useStore((s) => s.teamAColor);
 	const teamBColor = useStore((s) => s.teamBColor);
 	const setTeamColor = useStore((s) => s.setTeamColor);
+	const queueStrategy = useStore((s) => s.queueStrategy);
+	const setQueueStrategy = useStore((s) => s.setQueueStrategy);
 	const resetGames = useStore((s) => s.resetGames);
 	const resetDay = useStore((s) => s.resetDay);
 	const players = useStore((s) => s.players);
@@ -149,6 +152,42 @@ export default function Config() {
 						other={teamAColor}
 						onPick={(id) => setTeamColor("B", id)}
 					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardContent className="flex flex-col gap-2 p-4">
+					<span className="text-sm font-medium">Estratégia da fila</span>
+					{QUEUE_STRATEGIES.map((st) => {
+						const selected = st.id === queueStrategy;
+						return (
+							<button
+								key={st.id}
+								onClick={() => setQueueStrategy(st.id)}
+								className={cn(
+									"flex items-start gap-3 rounded-lg border p-3 text-left",
+									selected ? "border-primary bg-accent" : "bg-card",
+								)}
+							>
+								<span
+									className={cn(
+										"mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-2",
+										selected ? "border-primary" : "border-muted-foreground/40",
+									)}
+								>
+									{selected && (
+										<span className="size-2.5 rounded-full bg-primary" />
+									)}
+								</span>
+								<span className="flex flex-col">
+									<span className="text-sm font-medium">{st.label}</span>
+									<span className="text-xs text-muted-foreground">
+										{st.description}
+									</span>
+								</span>
+							</button>
+						);
+					})}
 				</CardContent>
 			</Card>
 

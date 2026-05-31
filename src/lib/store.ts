@@ -1,5 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import {
+	DEFAULT_QUEUE_STRATEGY,
+	getQueueStrategy,
+} from "./queue-strategies";
 import type {
 	DisableReason,
 	Game,
@@ -47,6 +51,7 @@ interface Actions {
 	// config
 	setName: (name: string) => void;
 	setTeamSize: (n: number) => void;
+	setQueueStrategy: (id: string) => void;
 	setTeamColor: (team: "A" | "B", colorId: string) => void;
 	setGameDuration: (min: number) => void;
 	/** start/restart the countdown from the full configured duration */
@@ -67,6 +72,7 @@ const initial = (): GameDayState => ({
 	teamSize: 6,
 	teamAColor: "blue",
 	teamBColor: "yellow",
+	queueStrategy: DEFAULT_QUEUE_STRATEGY,
 	gameDurationMin: 10,
 	timerEndsAt: null,
 	// crowded mode turns on automatically with 3 full teams + 1 player
@@ -83,20 +89,6 @@ const initial = (): GameDayState => ({
 	history: [],
 });
 
-/**
- * Default queue order: mensalistas first, then convidados. Within each class the
- * players keep their arrival order — which is simply the order of the `players`
- * array (reorderable on the Jogadores screen). Sort is stable, so it holds.
- */
-function arrivalOrder(players: Player[]): string[] {
-	const rank = (c: PlayerClass) => (c === "mensalista" ? 0 : 1);
-	return players
-		.filter((p) => !p.disabled)
-		.slice()
-		.sort((a, b) => rank(a.class) - rank(b.class))
-		.map((p) => p.id);
-}
-
 /** Ids currently on the field (so they are never double-counted in the queue). */
 function onField(s: GameDayState): Set<string> {
 	return new Set([...(s.teamA?.players ?? []), ...(s.teamB?.players ?? [])]);
@@ -109,7 +101,7 @@ function onField(s: GameDayState): Set<string> {
  * enabled players to the tail.
  */
 function syncQueue(s: GameDayState): string[] {
-	if (!s.started) return arrivalOrder(s.players);
+	if (!s.started) return getQueueStrategy(s.queueStrategy).seed(s.players);
 	const valid = new Set(
 		s.players.filter((p) => !p.disabled).map((p) => p.id),
 	);
@@ -412,14 +404,14 @@ export const useStore = create<Store>()(
 						queue = queue.slice(picked.length);
 						return picked;
 					};
-					const sendOff = (t: Team) => {
-						queue.push(...t.players);
-					};
 					const fresh = (): Team => ({
 						players: take(size),
 						enteredAt: now,
 						streak: 0,
 					});
+					// players leaving the field now — they all share the same waiting
+					// time, so the strategy's orderGroup decides their order in the queue
+					let leaving: string[] = [];
 
 					const winner: "A" | "B" | null =
 						result === "A" ? "A" : result === "B" ? "B" : null;
@@ -427,8 +419,7 @@ export const useStore = create<Store>()(
 					if (result === "tie") {
 						if (tooMany) {
 							// Both teams lose and leave; refill both from the head.
-							sendOff(teamA);
-							sendOff(teamB);
+							leaving = [...teamA.players, ...teamB.players];
 							teamA = fresh();
 							teamB = fresh();
 						} else {
@@ -436,7 +427,7 @@ export const useStore = create<Store>()(
 							const aStays = teamA.enteredAt >= teamB.enteredAt;
 							const stay = aStays ? teamA : teamB;
 							const leave = aStays ? teamB : teamA;
-							sendOff(leave);
+							leaving = [...leave.players];
 							const replacement = fresh();
 							teamA = aStays ? stay : replacement;
 							teamB = aStays ? replacement : stay;
@@ -448,13 +439,12 @@ export const useStore = create<Store>()(
 
 						if (tooMany && win.streak >= 2) {
 							// Win 2 in a row in crowded mode: both leave for newcomers.
-							sendOff(win);
-							sendOff(lose);
+							leaving = [...win.players, ...lose.players];
 							teamA = fresh();
 							teamB = fresh();
 						} else {
 							// Winner stays, loser leaves and is replaced from the head.
-							sendOff(lose);
+							leaving = [...lose.players];
 							const replacement = fresh();
 							if (winner === "A") {
 								teamA = win;
@@ -465,6 +455,12 @@ export const useStore = create<Store>()(
 							}
 						}
 					}
+
+					// append the leaving players (ordered by the active strategy) to the
+					// back of the queue, after the refills were pulled from the head
+					queue.push(
+						...getQueueStrategy(s.queueStrategy).orderGroup(leaving, s.players),
+					);
 
 					// substitutes don't lose their place: pull them off the field and
 					// back into the queue at the spot they held before subbing in
@@ -521,6 +517,12 @@ export const useStore = create<Store>()(
 
 			deleteGame: (id) =>
 				set((s) => ({ history: s.history.filter((g) => g.id !== id) })),
+
+			setQueueStrategy: (id) =>
+				set((s) => {
+					const next = { ...s, queueStrategy: id };
+					return { queueStrategy: id, queue: syncQueue(next) };
+				}),
 
 			setName: (name) => set({ name }),
 
@@ -583,7 +585,7 @@ export const useStore = create<Store>()(
 		}),
 		{
 			name: "pelada-gameday-v1",
-			version: 6,
+			version: 7,
 			// backfill fields added after a save
 			migrate: (state) => {
 				const s = state as Partial<GameDayState> | undefined;
@@ -592,6 +594,7 @@ export const useStore = create<Store>()(
 					s.teamAColor ??= "blue";
 					s.teamBColor ??= "yellow";
 					s.manualTooMany ??= false;
+					s.queueStrategy ??= DEFAULT_QUEUE_STRATEGY;
 					s.gameDurationMin ??= 10;
 					s.timerEndsAt ??= null;
 					s.currentGoals ??= [];

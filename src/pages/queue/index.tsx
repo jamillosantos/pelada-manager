@@ -26,6 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ColorDot } from "@/components/ui/color-dot";
 import { type TeamColor, getColor } from "@/lib/colors";
+import { getQueueStrategy } from "@/lib/queue-strategies";
 import { hhmm } from "@/lib/format";
 import { useStore } from "@/lib/store";
 import type { Player } from "@/lib/types";
@@ -35,6 +36,7 @@ export default function Queue() {
 	const queue = useStore((s) => s.queue);
 	const started = useStore((s) => s.started);
 	const teamSize = useStore((s) => s.teamSize);
+	const strategy = useStore((s) => getQueueStrategy(s.queueStrategy));
 	const setQueue = useStore((s) => s.setQueue);
 	const teamA = useStore((s) => s.teamA);
 	const teamB = useStore((s) => s.teamB);
@@ -80,7 +82,7 @@ export default function Queue() {
 				<p className="text-sm text-muted-foreground">
 					{started
 						? "Prioridade para o próximo jogo · arraste para mudar"
-						: "Mensalistas primeiro, depois convidados · arraste para mudar"}
+						: `${strategy.label} · arraste para mudar`}
 				</p>
 			</header>
 

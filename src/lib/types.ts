@@ -58,6 +58,8 @@ export interface GameDayState {
 	/** color id (see TEAM_COLORS) used to label each side */
 	teamAColor: string;
 	teamBColor: string;
+	/** id of the queue strategy (see queue-strategies.ts) */
+	queueStrategy: string;
 	/** game length in minutes for the countdown */
 	gameDurationMin: number;
 	/** epoch ms when the running countdown ends; null = not running */
