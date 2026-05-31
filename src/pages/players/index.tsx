@@ -13,7 +13,7 @@ import {
 	sortableKeyboardCoordinates,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Plus, RotateCcw, UserX } from "lucide-react";
+import { Plus, RotateCcw, Share2, UserX } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import type { Player } from "@/lib/types";
 
 export default function Players() {
 	const players = useStore((s) => s.players);
+	const dayName = useStore((s) => s.name);
 	const setPlayerOrder = useStore((s) => s.setPlayerOrder);
 	const enablePlayer = useStore((s) => s.enablePlayer);
 
@@ -60,13 +61,37 @@ export default function Players() {
 	const active = useMemo(() => players.filter((p) => !p.disabled), [players]);
 	const disabled = players.filter((p) => p.disabled);
 
+	const shareWhatsApp = () => {
+		const list = (cls: "mensalista" | "convidado") =>
+			active
+				.filter((p) => p.class === cls)
+				.map((p, i) => `${i + 1}. ${p.name}`)
+				.join("\n") || "—";
+		const text =
+			`*${dayName}*\n\n` +
+			`*Mensalistas*\n${list("mensalista")}\n\n` +
+			`*Convidados*\n${list("convidado")}`;
+		window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+	};
+
 	return (
 		<div className="flex flex-col gap-4 p-4">
-			<header className="pt-2">
-				<h1 className="text-2xl font-bold">Jogadores</h1>
-				<p className="text-sm text-muted-foreground">
-					Ordem de chegada · arraste para corrigir
-				</p>
+			<header className="flex items-start justify-between gap-2 pt-2">
+				<div>
+					<h1 className="text-2xl font-bold">Jogadores</h1>
+					<p className="text-sm text-muted-foreground">
+						Ordem de chegada · arraste para corrigir
+					</p>
+				</div>
+				<Button
+					size="icon"
+					variant="outline"
+					onClick={shareWhatsApp}
+					disabled={active.length === 0}
+					aria-label="Compartilhar no WhatsApp"
+				>
+					<Share2 />
+				</Button>
 			</header>
 
 			<Button size="lg" onClick={openAdd}>

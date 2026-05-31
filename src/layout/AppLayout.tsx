@@ -1,4 +1,10 @@
-import { ListOrdered, ListChecks, Settings, Volleyball } from "lucide-react";
+import {
+	ChartColumn,
+	ListChecks,
+	ListOrdered,
+	Settings,
+	Volleyball,
+} from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { cn } from "@/utils/cn";
 
@@ -6,6 +12,7 @@ const tabs = [
 	{ to: "/", label: "Jogadores", icon: ListOrdered, end: true },
 	{ to: "/fila", label: "Fila", icon: ListChecks, end: false },
 	{ to: "/jogos", label: "Jogos", icon: Volleyball, end: false },
+	{ to: "/stats", label: "Stats", icon: ChartColumn, end: false },
 	{ to: "/config", label: "Config", icon: Settings, end: false },
 ];
 
@@ -16,7 +23,7 @@ export function AppLayout() {
 				<Outlet />
 			</main>
 			<nav className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-				<div className="mx-auto grid max-w-md grid-cols-4">
+				<div className="mx-auto grid max-w-md grid-cols-5">
 					{tabs.map(({ to, label, icon: Icon, end }) => (
 						<NavLink
 							key={to}
